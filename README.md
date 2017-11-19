@@ -11,16 +11,22 @@ COPYING for more details.
 
 ## Example
 
-    (use-modules (gdbm))
+    (use-modules (rnrs bytevector) (gdbm))
 
     (define db (gdbm-open "/tmp/example.db" GDBM_WRCREAT))
 
-    (gdbm-set! db "foo" "bar")
-    (gdbm-set! db "baz" "quux")
-    (gdbm-set! db "zot" "veeblefetzer")
+    (define (gdbm-set!/string db k v)
+      (gdbm-set! db (string->utf8 k) (string->utf8 v)))
+
+    (gdbm-set!/string db "foo" "bar")
+    (gdbm-set!/string db "baz" "quux")
+    (gdbm-set!/string db "zot" "veeblefetzer")
 
     (write (gdbm-fold (lambda (key value old)
-                        (cons (cons key value) old))
+                        (cons (cons (utf8->string key)
+                                    (utf8->string value))
+                              old))
                       '()
                       db))
     ;; (("foo" . "bar") ("zot" . "veeblefetzer") ("baz" . "quux"))
+

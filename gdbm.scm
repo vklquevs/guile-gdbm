@@ -124,25 +124,23 @@
 
 (define maximum-int (- (expt 2 (* 8 (sizeof int))) 1))
 
-(define (string->db-datum string)
-  (let ((bv (string->utf8 string)))
-    (when (> (bytevector-length bv) maximum-int)
-      (error "string is too large for db"))
-    (make-c-struct datum
-                   (list (bytevector->pointer bv)
-                         (bytevector-length bv)))))
+(define (bytevector->db-datum bv)
+  (when (> (bytevector-length bv) maximum-int)
+    (error "datum is too large for db"))
+  (make-c-struct datum
+                 (list (bytevector->pointer bv)
+                       (bytevector-length bv))))
 
-(define* (db-datum->string db-datum #:key (free? #f))
+(define* (db-datum->bytevector db-datum #:key (free? #f))
   (let* ((struct (parse-c-struct db-datum datum))
          (bv-pointer (car struct))
          (bv-length (cadr struct)))
     (if (null-pointer? bv-pointer)
         #f
-        (let* ((bv (pointer->bytevector bv-pointer bv-length))
-               (str (utf8->string bv)))
+        (let ((bv (pointer->bytevector bv-pointer bv-length)))
           (when free?
             (free bv-pointer))
-          str))))
+          bv))))
 
 (define (free-db-datum db-datum)
   (let* ((struct (parse-c-struct db-datum datum))
@@ -202,8 +200,8 @@
 (define* (gdbm-set! db key value #:key (replace? #t))
   ;; traditional scheme semantics is always replace
   (define flag (if replace? GDBM_REPLACE GDBM_INSERT))
-  (define key-datum (string->db-datum key))
-  (define value-datum (string->db-datum value))
+  (define key-datum (bytevector->db-datum key))
+  (define value-datum (bytevector->db-datum value))
   (case (%gdbm-store (unwrap-db db) key-datum value-datum flag)
     ((-1)
      (gdbm-error))
@@ -211,15 +209,15 @@
      (error "data exists for this key, and called with #:replace? #f"))))
 
 (define* (gdbm-ref db key #:optional (default #f))
-  (let ((result (%gdbm-fetch (unwrap-db db) (string->db-datum key))))
-    (or (db-datum->string result #:free? #t)
+  (let ((result (%gdbm-fetch (unwrap-db db) (bytevector->db-datum key))))
+    (or (db-datum->bytevector result #:free? #t)
         default)))
 
 (define (gdbm-contains? db key)
-  (not (zero? (%gdbm-exists (unwrap-db db) (string->db-datum key)))))
+  (not (zero? (%gdbm-exists (unwrap-db db) (bytevector->db-datum key)))))
 
 (define (gdbm-delete! db key)
-  (let ((result (%gdbm-delete (unwrap-db db) (string->db-datum key))))
+  (let ((result (%gdbm-delete (unwrap-db db) (bytevector->db-datum key))))
     (unless (or (zero? result) (db-can-write? db))
       ;; In Scheme, we don't usually consider it an error to remove an
       ;; item that isn't there, so we only need a check for permission
@@ -237,10 +235,10 @@
   ;; not call/cc safe, nor should kons delete from the database
   (let ((db (unwrap-db db)))
     (let loop ((raw-key (%gdbm-first-key db)) (knil knil))
-      (let ((key-str (db-datum->string raw-key)))
+      (let ((key-str (db-datum->bytevector raw-key)))
         (if key-str
             ;; since key is there, we assume we always get a successful response
-            (let* ((val (db-datum->string (%gdbm-fetch db raw-key) #:free? #t))
+            (let* ((val (db-datum->bytevector (%gdbm-fetch db raw-key) #:free? #t))
                    (next-value (kons key-str val knil))
                    (next-key (%gdbm-next-key db raw-key)))
               (free-db-datum raw-key)
